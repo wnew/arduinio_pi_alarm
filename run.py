@@ -32,59 +32,59 @@ class alarm(object):
   # else assume windows
   else:
     ser = serial.Serial(
-      port = 'COM1',
+      port = 'COM6',
       baudrate = 115200,
       parity = serial.PARITY_NONE)
 
 
   def __init__(self, argv):
-    """ init function : starts the loop to poll the serial interface """
-    self.manageArgs(argv)
+	""" init function : starts the loop to poll the serial interface """
+	self.manageArgs(argv)
 
-    self.logger.info('Starting up alarm system')
+	self.logger.info('Starting up alarm system')
 
-    print self.sensors.sections()
-    self.ser.isOpen()
-    while 1:
-      data = self.getSerialData()
+	print self.sensors.sections()
+	self.ser.isOpen()
+	while 1:
+		data = self.getSerialData()
 
-
-  def manageConfig(self, config_file = 'alarm.conf'):
-    """ reads the configuration from the file and gets all the sensors """
-    self.parser = SafeConfigParser()
-    self.parser.read(config_file)
-    self.sensors = self.parser
-
+  def manageConfig(self, config_file):
+	""" reads the configuration from the file and gets all the sensors """
+	self.parser = SafeConfigParser()
+	self.parser.read(config_file)
+	self.sensors = self.parser
 
   def manageArgs(self, argv):
-    """ reads the cmd line parameters and configures the script accordingly """
-    p = OptionParser()
-    p.set_usage('run.py [options]')
-    p.set_description(__doc__)
-    p.add_option('-c', '--config', dest='config_file', action='store',
-        help='Specify the configuration file. Default: alarm.conf') 
-    opts, args = p.parse_args(sys.argv[1:])
-    self.manageConfig(opts.config_file)
-
+	""" reads the cmd line parameters and configures the script accordingly """
+	""" checks whether a sensor config file has been provided """
+	if len(argv) > 1 and argv[1].endswith(".conf") :
+		p = OptionParser()
+		p.set_usage('run.py [options]')
+		p.set_description(__doc__)
+		p.add_option('-c', '--config', dest='config_file', action='store',
+		help='Specify the configuration file. Default: alarm.conf') 
+		opts, args = p.parse_args()
+		self.manageConfig(opts.config_file)
+	else:
+		print 'ERROR: No sensor config file provided'
 
   def getSerialData(self):
-    """ polls the serial interface and checks if any sensors changed state """
-    out = ''
-    while self.ser.inWaiting() > 0:
-      out += self.ser.readline()
-      out = out.rstrip('\n\r')
-      print out
+	""" polls the serial interface and checks if any sensors changed state """
+	out = ''
+	while self.ser.inWaiting() > 0:
+		out += self.ser.readline()
+		out = out.rstrip('\n\r')
 
-      if (out != "") and (len(out) == len(self.sensors.sections())+2) and out.startswith('s') and out.endswith('e'):
-        out = out[out.find('s')+1:out.find('e')]
-        print out
-        for i, sensor in enumerate(self.sensors.sections()):
-          if int(self.sensors.get(sensor, 'state')) != int(out[i]):
-            self.sensors.set(sensor, 'state', str(out[i]))
-            print self.sensors.get(sensor, 'name') + self.sensors.get(sensor, 'state')
-            self.logger.info(elf.sensors.get(sensor, 'name') + ' ' + self.sensors.get(sensor, 'state'))
-            self.checkAlarmState()
-
+	if (out != "") and (len(out) == len(self.sensors.sections())+2) and out.startswith('s') and out.endswith('e'):
+		out = out[out.find('s')+1:out.find('e')]
+		print out
+		
+		for i, sensor in enumerate(self.sensors.sections()):
+			if int(self.sensors.get(sensor, 'state')) != int(out[i]):
+				self.sensors.set(sensor, 'state', str(out[i]))
+				print self.sensors.get(sensor, 'name') + self.sensors.get(sensor, 'state')
+				self.logger.info(self.sensors.get(sensor, 'name') + ' ' + self.sensors.get(sensor, 'state'))
+				self.checkAlarmState()
 
   def checkAlarmState(self):
     """ checks the alarm state and decides whether or not to sound the siren """
