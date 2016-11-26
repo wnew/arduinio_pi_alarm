@@ -20,7 +20,7 @@ class alarmstate(object):
 		{'trigger':'trigger','source':['armed','stay'],'dest':'triggered'}]
 		
 	def __init__(self,logger):
-		self.machine = Machine(model=self,states=alarmstate.states,transitions=alarmstate.transitions,initial="stay")
+		self.machine = Machine(model=self,states=alarmstate.states,transitions=alarmstate.transitions,initial="disarmed")
 		self.sensorstates = ''
 		
 		self.logger = logger					# used to log changes in alarm state
@@ -122,8 +122,8 @@ class alarm(object):
 	def checkAlarmState(self,sensor):
 		""" checks the alarm state and decides whether or not to sound the siren """
 		if self.alarmstate.state == 'disarmed':				
-			#pass											# do nothing
-			self.alarmstate.arm()							# added for testing purposes
+			pass											# do nothing
+			#self.alarmstate.arm()							# enable for testing purposes
 		elif self.alarmstate.state == 'armed':				
 			print "TODO:activate alarm siren"				# trigger alarm siren
 			self.alarmstate.trigger()						# change alarm state to triggered
@@ -135,7 +135,15 @@ class alarm(object):
 				pass
 		else:												# assume alarm is in the triggered state
 			pass
+	
+	def turnAlarmOn(self):									#NOT USED YET - run to turn alarm on
+		self.alarmstate.arm()
 
-
+	def turnAlarmOff(self):									#NOT USED YET - run to turn alarm off
+		self.alarmstate.disarm()
+		
+	def turnAlarmStayOn(self):								#NOT USED YET - run to turn stay alarm on
+		self.alarmstate.stay()
+		
 # run the code above
 alarm(sys.argv)
