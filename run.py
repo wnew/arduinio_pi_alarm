@@ -8,25 +8,39 @@ from transitions import Machine
 
 class alarmstate(object):
 	""" class which manages the state of the alarm """
+	""" need to import transitions by running 'pip install transitions' """
+	""" got this from https://github.com/tyarkoni/transitions/blob/master/README.md """
+	
 	states = ["disarmed","armed","stay","triggered"]
 
 	transitions = [
 		{'trigger':'disarm','source':['armed','stay','triggered'],'dest':'disarmed'},
-		{'trigger':'arm','source':'disarmed','dest':'armed'},
-		{'trigger':'stay','source':'disarmed','dest':'stay'},
+		{'trigger':'arm','source':'disarmed','dest':'armed','conditions':'checkAllSensorsAreNotActivated'},
+		{'trigger':'stay','source':'disarmed','dest':'stay','conditions':'checkAllSensorsAreNotActivated'},
 		{'trigger':'trigger','source':['armed','stay'],'dest':'triggered'}]
 		
-	def __init__(self):
-		self.machine = Machine(model=self,states=alarmstate.states,transitions=alarmstate.transitions,initial="disarmed")
+	def __init__(self,logger):
+		self.machine = Machine(model=self,states=alarmstate.states,transitions=alarmstate.transitions,initial="stay")
 		self.sensorstates = ''
 		
-		self.machine.on_enter_disarmed('logStateChange')
-		self.machine.on_enter_armed('logStateChange')
-		self.machine.on_enter_stay('logStateChange')
-		self.machine.on_enter_triggered('logStateChange')
+		self.logger = logger					# used to log changes in alarm state
+		self.sensorstate = ''					# used in checkAllSensorsAreNotActivated function
+		
+		self.machine.on_enter_disarmed('logStateChange')		# runs the logStateChange when setting alarm to disarmed
+		self.machine.on_enter_armed('logStateChange')			# runs the logStateChange when setting alarm to armed
+		self.machine.on_enter_stay('logStateChange')			# runs the logStateChange when setting alarm to stay
+		self.machine.on_enter_triggered('logStateChange')		# runs the logStateChange when setting alarm to triggered
 	
 	def logStateChange(self):
-		print 'log state change'
+		""" records all state changes in the log """
+		self.logger.info('Alarm state: ' +  self.state)
+		
+	def checkAllSensorsAreNotActivated(self):
+		""" checks all alarm sensors are not active """
+		if "1" not in self.sensorstate:							# assumes all active sensors will be 1 and deactive sensors will be 0
+			return True
+		else:
+			return False
 	
 class alarm(object):
 	""" class which manages the alarm """
@@ -38,7 +52,7 @@ class alarm(object):
 	fh.setFormatter(formatter)
 	logger.addHandler(fh)
 	
-	alarmstate = alarmstate()
+	alarmstate = alarmstate(logger)
 	
 	# set the correct serial port for the OS
 	if sys.platform.startswith('linux'):
@@ -59,6 +73,7 @@ class alarm(object):
 		self.manageArgs(argv)
 
 		self.logger.info('Starting up alarm system')
+		self.logger.info('Alarm state: ' + self.alarmstate.state)
 
 		print self.sensors.sections()
 		self.ser.isOpen()
@@ -91,6 +106,7 @@ class alarm(object):
 		while self.ser.inWaiting() > 0:
 			out += self.ser.readline()
 			out = out.rstrip('\n\r')
+			self.alarmstate.sensorstate = out
 
 		if (out != "") and (len(out) == len(self.sensors.sections())+2) and out.startswith('s') and out.endswith('e'):
 			out = out[out.find('s')+1:out.find('e')]
@@ -101,18 +117,23 @@ class alarm(object):
 					self.sensors.set(sensor, 'state', str(out[i]))
 					print self.sensors.get(sensor, 'name') + self.sensors.get(sensor, 'state')
 					self.logger.info(self.sensors.get(sensor, 'name') + ' ' + self.sensors.get(sensor, 'state'))
-					self.checkAlarmState()
+					self.checkAlarmState(sensor)
 
-	def checkAlarmState(self):
+	def checkAlarmState(self,sensor):
 		""" checks the alarm state and decides whether or not to sound the siren """
-		if self.alarmstate.state == 'disarmed':				# take this action if alarm is disarmed
-			self.alarmstate.arm()										# - do nothing
-		elif self.alarmstate.state == 'armed':				# take this action if alarm is armed
-			print "TODO:tigger alarm siren"				# - trigger alarm siren
-			self.alarmstate.trigger()						# - change alarm state to triggered
-		elif self.alarmstate.state == 'stay':				# take this action if alarm is  in stay
-			pass
-		else:
+		if self.alarmstate.state == 'disarmed':				
+			#pass											# do nothing
+			self.alarmstate.arm()							# added for testing purposes
+		elif self.alarmstate.state == 'armed':				
+			print "TODO:activate alarm siren"				# trigger alarm siren
+			self.alarmstate.trigger()						# change alarm state to triggered
+		elif self.alarmstate.state == 'stay':				
+			if self.sensors.get(sensor, 'stay') == 'true':	# check config if sensor should be active during stay mode
+				print "TODO:activate alarm siren"			# trigger alarm siren
+				self.alarmstate.trigger()					# change alarm state to triggered
+			else:
+				pass
+		else:												# assume alarm is in the triggered state
 			pass
 
 
