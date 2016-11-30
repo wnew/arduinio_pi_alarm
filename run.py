@@ -139,16 +139,18 @@ class alarm(object):
     def userInputCheckState(self, button, pressDuration):
         if button == 'set':
             if self.alarmState == self.DISARMED:
-                if pressDuration > 1.0:
+                if pressDuration > 1.5:
                     self.setAlarmState(self.STAY)
                 else:
                     self.setAlarmState(self.ARMED)
             else:
                 self.setAlarmState(self.DISARMED)
         elif button == 'panic':
-            if pressDuration > 1.0:
-                self.setAlarmState(self.TRIGGERED)  # long press could be used as a silent panic mode
+            if pressDuration > 1.5:
+                self.logger.info('Silent panic triggered')
+                #TODO: long press could be used as a silent panic mode
             else:
+                self.logger.info('Normal panic triggered')
                 self.setAlarmState(self.TRIGGERED)
 
     def setAlarmState(self, state):
@@ -183,7 +185,7 @@ class userInput(object):
                     # alarm set button 
                     if sensors.get(sensor, 'name') == 'alarm set':
                         # save the time that the alarm set button was depressed
-                        if sensors.get(sensor, 'state') == '1':
+                        if sensors.get(sensor, 'state') == '0':
                             self.logger.info('%s pressed' %(sensors.get(sensor, 'name')))
                             self.alarmSetDepressTime = time.time()
                         else:
@@ -192,7 +194,7 @@ class userInput(object):
                     # panic button
                     elif sensors.get(sensor, 'name') == 'panic':
                         # save the time that the panic button was depressed
-                        if sensors.get(sensor, 'state') == '1':
+                        if sensors.get(sensor, 'state') == '0':
                             self.logger.info('%s pressed' %(sensors.get(sensor, 'name')))
                             self.alarmSetDepressTime = time.time()
                         else:
@@ -201,7 +203,7 @@ class userInput(object):
                     # gate button
                     elif sensors.get(sensor, 'name') == 'gate':
                         # save the time that the gate button was depressed
-                        if sensors.get(sensor, 'state') == '1':
+                        if sensors.get(sensor, 'state') == '0':
                             self.logger.info('%s pressed' %(sensors.get(sensor, 'name')))
                             self.gateDepressTime = time.time()
                         else:
@@ -209,11 +211,11 @@ class userInput(object):
                             self.toggleGate(time.time()-self.gateDepressTime)
                     # garage button
                     elif sensors.get(sensor, 'name') == 'garage':
-                        if sensors.get(sensor, 'state') == '0':
+                        if sensors.get(sensor, 'state') == '1':
                             self.toggleGarage()
                     # fence button
                     elif sensors.get(sensor, 'name') == 'fence':
-                        if sensors.get(sensor, 'state') == '0':
+                        if sensors.get(sensor, 'state') == '1':
                             self.toggleFence()
 
     def toggleGate(self, duration):
