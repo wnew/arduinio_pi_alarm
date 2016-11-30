@@ -4,146 +4,187 @@ import serial
 import logging
 from optparse import OptionParser
 from ConfigParser import SafeConfigParser
-from transitions import Machine
+import RPi.GPIO as GPIO
 
-class alarmstate(object):
-	""" class which manages the state of the alarm """
-	""" need to import transitions by running 'pip install transitions' """
-	""" got this from https://github.com/tyarkoni/transitions/blob/master/README.md """
-	
-	states = ["disarmed","armed","stay","triggered"]
+SIREN_PIN = 21
 
-	transitions = [
-		{'trigger':'disarm','source':['armed','stay','triggered'],'dest':'disarmed'},
-		{'trigger':'arm','source':'disarmed','dest':'armed','conditions':'checkAllSensorsAreNotActivated'},
-		{'trigger':'stay','source':'disarmed','dest':'stay','conditions':'checkAllSensorsAreNotActivated'},
-		{'trigger':'trigger','source':['armed','stay'],'dest':'triggered'}]
-		
-	def __init__(self,logger):
-		self.machine = Machine(model=self,states=alarmstate.states,transitions=alarmstate.transitions,initial="disarmed")
-		self.sensorstates = ''
-		
-		self.logger = logger					# used to log changes in alarm state
-		self.sensorstate = ''					# used in checkAllSensorsAreNotActivated function
-		
-		self.machine.on_enter_disarmed('logStateChange')		# runs the logStateChange when setting alarm to disarmed
-		self.machine.on_enter_armed('logStateChange')			# runs the logStateChange when setting alarm to armed
-		self.machine.on_enter_stay('logStateChange')			# runs the logStateChange when setting alarm to stay
-		self.machine.on_enter_triggered('logStateChange')		# runs the logStateChange when setting alarm to triggered
-	
-	def logStateChange(self):
-		""" records all state changes in the log """
-		self.logger.info('Alarm state: ' +  self.state)
-		
-	def checkAllSensorsAreNotActivated(self):
-		""" checks all alarm sensors are not active """
-		if "1" not in self.sensorstate:							# assumes all active sensors will be 1 and deactive sensors will be 0
-			return True
-		else:
-			return False
-	
+GPIO.setwarnings(False)
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(SIREN_PIN, GPIO.OUT)
+GPIO.output(SIREN_PIN, True)
+
+class arduinoComms(object):
+    """ class to manages the communication with the arduino """
+
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler('homeauto_log')
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    
+    # set the correct serial port for the OS
+    if sys.platform.startswith('linux'):
+        ser = serial.Serial(
+        port = '/dev/ttyUSB0',
+        baudrate = 115200,
+        parity = serial.PARITY_NONE)
+    # else assume windows
+    else:
+        ser = serial.Serial(
+        port = 'COM6',
+        baudrate = 115200,
+        parity = serial.PARITY_NONE)
+
+
+    def __init__(self, argv):
+        """ init function : starts the loop to poll the serial interface """
+        
+        self.alarm = alarm(self.logger)
+        self.userInput = userInput(self.logger)
+        self.manageArgs(argv)
+        self.logger.info('Starting up alarm system')
+        self.ser.isOpen()
+        while 1:
+            data = self.getSerialData()
+
+    def manageConfig(self, config_file):
+        """ reads the configuration from the file and gets all the sensors """
+        self.parser = SafeConfigParser()
+        self.parser.read(config_file)
+        self.sensors = self.parser
+
+    def manageArgs(self, argv):
+        """ reads the cmd line parameters and configures the script accordingly """
+        """ checks whether a sensor config file has been provided """
+        p = OptionParser()
+        p.set_usage('run.py [options]')
+        p.set_description(__doc__)
+        p.add_option('-c', '--config', dest='config_file', action='store',
+                     help='Specify the configuration file. default: alarm.conf',
+                     default='alarm.conf') 
+        opts, args = p.parse_args()
+        self.manageConfig(opts.config_file)
+
+    def getSerialData(self):
+        """ polls the serial interface and checks if any sensors changed state """
+        data = ''
+        while self.ser.inWaiting() > 0:
+            data += self.ser.readline()
+            data = data.rstrip('\n\r')
+
+        if (data != "") and (len(data) == len(self.sensors.sections())+2) and data.startswith('s') and data.endswith('e'):
+            data = data[data.find('s')+1:data.find('e')]
+            # send the sensors and the serial data to the alarm manager
+            self.alarm.checkState(self.sensors, data)
+            # send the sensors and the serial data to the home automation manager
+            self.userInput.checkState(self.sensors, data, self.alarm)
+
+
+
 class alarm(object):
-	""" class which manages the alarm """
-	
-	logger = logging.getLogger(__name__)
-	logger.setLevel(logging.INFO)
-	fh = logging.FileHandler('sensor_log')
-	formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-	fh.setFormatter(formatter)
-	logger.addHandler(fh)
-	
-	alarmstate = alarmstate(logger)
-	
-	# set the correct serial port for the OS
-	if sys.platform.startswith('linux'):
-		ser = serial.Serial(
-		port = '/dev/ttyUSB0',
-		baudrate = 115200,
-		parity = serial.PARITY_NONE)
-	# else assume windows
-	else:
-		ser = serial.Serial(
-		port = 'COM6',
-		baudrate = 115200,
-		parity = serial.PARITY_NONE)
+    """ class which manages the alarm """
+
+    # alarm states
+    STARTUP   = 'STARTUP'
+    DISARMED  = 'DISARMED'
+    STAY      = 'STAY'
+    ARMED     = 'ARMED'
+    TRIGGERED = 'TRIGGERED'
+    # initial alarm state
+    alarmState = STARTUP
+        
+    def __init__(self, logger):
+       self.logger = logger
+       self.logger.info('Alarm starting up')
+       self.logger.info('Alarm state: %s' %self.alarmState)
+ 
+    def checkState(self, sensors, data):
+        """ checks the alarm state and decides whether or not to sound the siren """
+        # if the alarm is in startup state then loop throught the sensors and assign their states
+        if self.alarmState == self.STARTUP:
+            for i, sensor in enumerate(sensors.sections()):
+                sensors.set(sensor, 'state', str(data[i]))  # initialise the states of the sensors
+                sensors.set(sensor, 'triggered', '0')       # set sensor triggered values to 0
+            self.alarmState = self.DISARMED
+            self.logger.info('Sensor states initiallised')
+            self.logger.info('Alarm state : %s' %'DISARMED')
+        # if the alarm is not in startup state then check if any sensors have changed
+        # and update the state accordingly
+        else:
+            for i, sensor in enumerate(sensors.sections()):
+                if int(sensors.get(sensor, 'state')) != int(data[i]):
+                    if sensors.get(sensor, 'user_input') == 'false':
+                        sensors.set(sensor, 'state', str(data[i]))
+                        sensors.set(sensor, 'triggered', '1')
+                        print sensors.get(sensor, 'name') + sensors.get(sensor, 'state')
+                        self.logger.info(sensors.get(sensor, 'name') + ' ' + sensors.get(sensor, 'state'))
+                        if self.alarmState == self.ARMED:              
+                            self.alarmState(self.TRIGGERED)                     # change alarm state to triggered
+                        elif self.alarmState == self.STAY:               
+                            if sensors.get(sensor, 'stay') == 'true':  # check config if sensor should be active during stay mode
+                               self.alarmState(self.TRIGGERED)                         # change alarm state to triggered
+            for i, sensor in enumerate(sensors.sections()):
+                sensors.set(sensor, 'triggered', '0')
+
+    def userInputCheckState(self, button, pressDuration):
+        if button == 'set':
+            if self.alarmState == self.DISARMED:
+                if pressDuration > 1.0:
+                    self.setAlarmState(self.STAY)
+                else:
+                    self.setAlarmState(self.ARMED)
+            else:
+                self.setAlarmState(self.DISARMED)
+        elif button == 'panic':
+            if pressDuration > 1.0:
+                self.setAlarmState(self.TRIGGERED)  # long press could be used as a silent panic mode
+            else:
+                self.setAlarmState(self.TRIGGERED)
+
+    def setAlarmState(self, state):
+        self.alarmState = state
+        self.logger.info('Alarm state : %s' %self.alarmState)
+        if self.alarmState == self.DISARMED:
+            GPIO.output(SIREN_PIN, True)
+        elif self.alarmState == self.STAY:
+            GPIO.output(SIREN_PIN, True)
+        elif self.alarmState == self.ARMED:
+            GPIO.output(SIREN_PIN, True)
+        elif self.alarmState == self.TRIGGERED:
+            GPIO.output(SIREN_PIN, False)
 
 
-	def __init__(self, argv):
-		""" init function : starts the loop to poll the serial interface """
-		self.manageArgs(argv)
+class userInput(object):
+    """ class to manage the home automation side """
 
-		self.logger.info('Starting up alarm system')
-		self.logger.info('Alarm state: ' + self.alarmstate.state)
+    def __init__(self, logger):
+        self.alarmSetDepressTime = 0
+        self.panicDepressTime = 0
+        self.logger = logger
+        self.logger.info('Home automation starting up')
+    
+    def checkState(self, sensors, data, alarm):
+        for i, sensor in enumerate(sensors.sections()):
+            if int(sensors.get(sensor, 'state')) != int(data[i]):
+                if int(sensors.get(sensor, 'user_input') == 'true'):
+                    sensors.set(sensor, 'state', str(data[i]))
+                    print sensors.get(sensor, 'name')
+                    if sensors.get(sensor, 'name') == 'alarm set':
+                        if sensors.get(sensor, 'state') == '1':
+                            self.logger.info('%s pressed' %(sensors.get(sensor, 'name')))
+                            self.alarmSetDepressTime = time.time()
+                        else:
+                            self.logger.info('%s released' %(sensors.get(sensor, 'name')))
+                            alarm.userInputCheckState('set', time.time()-self.alarmSetDepressTime)
+                    elif sensors.get(sensor, 'name') == 'panic':
+                        if sensors.get(sensor, 'state') == '1':
+                            self.logger.info('%s pressed' %(sensors.get(sensor, 'name')))
+                            self.alarmSetDepressTime = time.time()
+                        else:
+                            self.logger.info('%s released' %(sensors.get(sensor, 'name')))
+                            alarm.userInputCheckState('panic', time.time()-self.alarmSetDepressTime)
 
-		print self.sensors.sections()
-		self.ser.isOpen()
-		while 1:
-			data = self.getSerialData()
 
-	def manageConfig(self, config_file):
-		""" reads the configuration from the file and gets all the sensors """
-		self.parser = SafeConfigParser()
-		self.parser.read(config_file)
-		self.sensors = self.parser
-
-	def manageArgs(self, argv):
-		""" reads the cmd line parameters and configures the script accordingly """
-		""" checks whether a sensor config file has been provided """
-		if len(argv) > 1 and argv[1].endswith(".conf") :
-			p = OptionParser()
-			p.set_usage('run.py [options]')
-			p.set_description(__doc__)
-			p.add_option('-c', '--config', dest='config_file', action='store',
-			help='Specify the configuration file. Default: alarm.conf') 
-			opts, args = p.parse_args()
-			self.manageConfig(opts.config_file)
-		else:
-			print 'ERROR: No sensor config file provided'
-
-	def getSerialData(self):
-		""" polls the serial interface and checks if any sensors changed state """
-		out = ''
-		while self.ser.inWaiting() > 0:
-			out += self.ser.readline()
-			out = out.rstrip('\n\r')
-			self.alarmstate.sensorstate = out
-
-		if (out != "") and (len(out) == len(self.sensors.sections())+2) and out.startswith('s') and out.endswith('e'):
-			out = out[out.find('s')+1:out.find('e')]
-			alarmstate.sensorstates = out
-			
-			for i, sensor in enumerate(self.sensors.sections()):
-				if int(self.sensors.get(sensor, 'state')) != int(out[i]):
-					self.sensors.set(sensor, 'state', str(out[i]))
-					print self.sensors.get(sensor, 'name') + self.sensors.get(sensor, 'state')
-					self.logger.info(self.sensors.get(sensor, 'name') + ' ' + self.sensors.get(sensor, 'state'))
-					self.checkAlarmState(sensor)
-
-	def checkAlarmState(self,sensor):
-		""" checks the alarm state and decides whether or not to sound the siren """
-		if self.alarmstate.state == 'disarmed':				
-			pass											# do nothing
-			#self.alarmstate.arm()							# enable for testing purposes
-		elif self.alarmstate.state == 'armed':				
-			print "TODO:activate alarm siren"				# trigger alarm siren
-			self.alarmstate.trigger()						# change alarm state to triggered
-		elif self.alarmstate.state == 'stay':				
-			if self.sensors.get(sensor, 'stay') == 'true':	# check config if sensor should be active during stay mode
-				print "TODO:activate alarm siren"			# trigger alarm siren
-				self.alarmstate.trigger()					# change alarm state to triggered
-			else:
-				pass
-		else:												# assume alarm is in the triggered state
-			pass
-	
-	def turnAlarmOn(self):									#NOT USED YET - run to turn alarm on
-		self.alarmstate.arm()
-
-	def turnAlarmOff(self):									#NOT USED YET - run to turn alarm off
-		self.alarmstate.disarm()
-		
-	def turnAlarmStayOn(self):								#NOT USED YET - run to turn stay alarm on
-		self.alarmstate.stay()
-		
 # run the code above
-alarm(sys.argv)
+arduinoComms(sys.argv)
