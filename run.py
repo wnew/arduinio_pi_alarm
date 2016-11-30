@@ -6,12 +6,21 @@ from optparse import OptionParser
 from ConfigParser import SafeConfigParser
 import RPi.GPIO as GPIO
 
-SIREN_PIN = 21
+SIREN_PIN  = 21
+GARAGE_PIN = 16
+GATE_PIN   = 20
+FENCE_PIN  = 26
 
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(SIREN_PIN, GPIO.OUT)
-GPIO.output(SIREN_PIN, True)
+GPIO.setup(SIREN_PIN,  GPIO.OUT)
+GPIO.setup(GARAGE_PIN, GPIO.OUT)
+GPIO.setup(GATE_PIN,   GPIO.OUT)
+GPIO.setup(FENCE_PIN,  GPIO.OUT)
+GPIO.output(SIREN_PIN,  True)
+GPIO.output(GARAGE_PIN, True)
+GPIO.output(GATE_PIN,   True)
+GPIO.output(FENCE_PIN,  True)
 
 class arduinoComms(object):
     """ class to manages the communication with the arduino """
@@ -120,10 +129,10 @@ class alarm(object):
                         print sensors.get(sensor, 'name') + sensors.get(sensor, 'state')
                         self.logger.info(sensors.get(sensor, 'name') + ' ' + sensors.get(sensor, 'state'))
                         if self.alarmState == self.ARMED:              
-                            self.alarmState(self.TRIGGERED)                     # change alarm state to triggered
+                            self.setAlarmState(self.TRIGGERED)                     # change alarm state to triggered
                         elif self.alarmState == self.STAY:               
                             if sensors.get(sensor, 'stay') == 'true':  # check config if sensor should be active during stay mode
-                               self.alarmState(self.TRIGGERED)                         # change alarm state to triggered
+                               self.setAlarmState(self.TRIGGERED)                         # change alarm state to triggered
             for i, sensor in enumerate(sensors.sections()):
                 sensors.set(sensor, 'triggered', '0')
 
@@ -161,6 +170,7 @@ class userInput(object):
     def __init__(self, logger):
         self.alarmSetDepressTime = 0
         self.panicDepressTime = 0
+        self.gateDepressTime = 0
         self.logger = logger
         self.logger.info('Home automation starting up')
     
@@ -170,21 +180,66 @@ class userInput(object):
                 if int(sensors.get(sensor, 'user_input') == 'true'):
                     sensors.set(sensor, 'state', str(data[i]))
                     print sensors.get(sensor, 'name')
+                    # alarm set button 
                     if sensors.get(sensor, 'name') == 'alarm set':
+                        # save the time that the alarm set button was depressed
                         if sensors.get(sensor, 'state') == '1':
                             self.logger.info('%s pressed' %(sensors.get(sensor, 'name')))
                             self.alarmSetDepressTime = time.time()
                         else:
                             self.logger.info('%s released' %(sensors.get(sensor, 'name')))
                             alarm.userInputCheckState('set', time.time()-self.alarmSetDepressTime)
+                    # panic button
                     elif sensors.get(sensor, 'name') == 'panic':
+                        # save the time that the panic button was depressed
                         if sensors.get(sensor, 'state') == '1':
                             self.logger.info('%s pressed' %(sensors.get(sensor, 'name')))
                             self.alarmSetDepressTime = time.time()
                         else:
                             self.logger.info('%s released' %(sensors.get(sensor, 'name')))
                             alarm.userInputCheckState('panic', time.time()-self.alarmSetDepressTime)
+                    # gate button
+                    elif sensors.get(sensor, 'name') == 'gate':
+                        # save the time that the gate button was depressed
+                        if sensors.get(sensor, 'state') == '1':
+                            self.logger.info('%s pressed' %(sensors.get(sensor, 'name')))
+                            self.gateDepressTime = time.time()
+                        else:
+                            self.logger.info('%s released' %(sensors.get(sensor, 'name')))
+                            self.toggleGate(time.time()-self.gateDepressTime)
+                    # garage button
+                    elif sensors.get(sensor, 'name') == 'garage':
+                        if sensors.get(sensor, 'state') == '0':
+                            self.toggleGarage()
+                    # fence button
+                    elif sensors.get(sensor, 'name') == 'fence':
+                        if sensors.get(sensor, 'state') == '0':
+                            self.toggleFence()
 
+    def toggleGate(self, duration):
+        GPIO.output(GATE_PIN, False)
+        time.sleep(0.5)
+        GPIO.output(GATE_PIN, True)
+        self.logger.info('Toggling gate state duration %s' % duration)
+        if duration > 2:
+            time.sleep(2)
+            GPIO.output(GATE_PIN, False)
+            time.sleep(0.5)
+            GPIO.output(GATE_PIN, True)
+            self.logger.info('Toggling gate state')
+
+
+    def toggleGarage(self):
+        GPIO.output(GARAGE_PIN, False)
+        time.sleep(0.5)
+        GPIO.output(GARAGE_PIN, True)
+        self.logger.info('Toggling garage state')
+
+    def toggleFence(self):
+        GPIO.output(FENCE_PIN, False)
+        time.sleep(0.5)
+        GPIO.output(FENCE_PIN, True)
+        self.logger.info('Toggling fence state')
 
 # run the code above
 arduinoComms(sys.argv)
