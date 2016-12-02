@@ -56,6 +56,10 @@ class arduinoComms(object):
         self.ser.isOpen()
         while 1:
             data = self.getSerialData()
+            # give the cpu some time to let other processes run
+            # otherwise we hog the cpu for 100%
+            # the arduino only sends at maximum every 25ms anyway so we should not miss any data
+            time.sleep(0.025) 
 
     def manageConfig(self, config_file):
         """ reads the configuration from the file and gets all the sensors """
@@ -116,7 +120,7 @@ class alarm(object):
                 sensors.set(sensor, 'state', str(data[i]))  # initialise the states of the sensors
                 sensors.set(sensor, 'triggered', '0')       # set sensor triggered values to 0
             self.alarmState = self.DISARMED
-            self.logger.info('Sensor states initiallised')
+            self.logger.info('Sensor states initialised')
             self.logger.info('Alarm state : %s' %'DISARMED')
         # if the alarm is not in startup state then check if any sensors have changed
         # and update the state accordingly
@@ -157,13 +161,20 @@ class alarm(object):
         self.alarmState = state
         self.logger.info('Alarm state : %s' %self.alarmState)
         if self.alarmState == self.DISARMED:
-            GPIO.output(SIREN_PIN, True)
+            self.pulseSiren(0.05, 1)
         elif self.alarmState == self.STAY:
-            GPIO.output(SIREN_PIN, True)
+            self.pulseSiren(0.05, 3)
         elif self.alarmState == self.ARMED:
-            GPIO.output(SIREN_PIN, True)
+            self.pulseSiren(0.05, 2)
         elif self.alarmState == self.TRIGGERED:
             GPIO.output(SIREN_PIN, False)
+
+    def pulseSiren(self, delay=0.1, repeat=1):
+        for i in range(repeat):
+            GPIO.output(SIREN_PIN, False)
+            time.sleep(delay)
+            GPIO.output(SIREN_PIN, True)
+            time.sleep(3*delay)
 
 
 class userInput(object):
