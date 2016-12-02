@@ -31,7 +31,7 @@ class arduinoComms(object):
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-    
+
     # set the correct serial port for the OS
     if sys.platform.startswith('linux'):
         ser = serial.Serial(
@@ -48,7 +48,7 @@ class arduinoComms(object):
 
     def __init__(self, argv):
         """ init function : starts the loop to poll the serial interface """
-        
+
         self.alarm = alarm(self.logger)
         self.userInput = userInput(self.logger)
         self.manageArgs(argv)
@@ -86,7 +86,7 @@ class arduinoComms(object):
             data += self.ser.readline()
             data = data.rstrip('\n\r')
 
-        if (data != "") and (len(data) == len(self.sensors.sections())+2) and data.startswith('s') and data.endswith('e'):
+        if (len(data) >= len(self.sensors.sections())+2) and data.startswith('s') and data.endswith('e'):
             data = data[data.find('s')+1:data.find('e')]
             # send the sensors and the serial data to the alarm manager
             self.alarm.checkState(self.sensors, data)
@@ -106,12 +106,12 @@ class alarm(object):
     TRIGGERED = 'TRIGGERED'
     # initial alarm state
     alarmState = STARTUP
-        
+
     def __init__(self, logger):
        self.logger = logger
        self.logger.info('Alarm starting up')
        self.logger.info('Alarm state: %s' %self.alarmState)
- 
+
     def checkState(self, sensors, data):
         """ checks the alarm state and decides whether or not to sound the siren """
         # if the alarm is in startup state then loop throught the sensors and assign their states
@@ -132,9 +132,9 @@ class alarm(object):
                         sensors.set(sensor, 'triggered', '1')
                         print sensors.get(sensor, 'name') + sensors.get(sensor, 'state')
                         self.logger.info(sensors.get(sensor, 'name') + ' ' + sensors.get(sensor, 'state'))
-                        if self.alarmState == self.ARMED:              
+                        if self.alarmState == self.ARMED:
                             self.setAlarmState(self.TRIGGERED)                     # change alarm state to triggered
-                        elif self.alarmState == self.STAY:               
+                        elif self.alarmState == self.STAY:
                             if sensors.get(sensor, 'stay') == 'true':  # check config if sensor should be active during stay mode
                                self.setAlarmState(self.TRIGGERED)                         # change alarm state to triggered
             for i, sensor in enumerate(sensors.sections()):
@@ -186,7 +186,7 @@ class userInput(object):
         self.gateDepressTime = 0
         self.logger = logger
         self.logger.info('Home automation starting up')
-    
+
     def checkState(self, sensors, data, alarm):
         for i, sensor in enumerate(sensors.sections()):
             if int(sensors.get(sensor, 'state')) != int(data[i]):
