@@ -4,10 +4,22 @@
 
 // list of sensor pins, set this to the number of sensors in your system.
 // this must match the number of sensors in your rpi python code
-const uint8_t pins[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19};
-int pin_states[]     = {1, 1, 1, 1, 1, 1, 1, 1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1};
-bool state_changed = false;
 
+#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+const uint8_t pins[] = {2,   3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17,
+                        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+                        34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
+                        50, 51, 52, 53, 54, 55, 56};
+int pin_states[]     = {1, 1, 1, 1, 1, 1, 1, 1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,
+                        1, 1, 1, 1, 1, 1, 1, 1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,
+                        1, 1, 1, 1, 1, 1, 1, 1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,
+                        1, 1, 1, 1, 1, 1, 1};
+#else
+const uint8_t pins[] = {2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19};
+int pin_states[]     = {1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1};
+#endif
+
+bool state_changed = false;
 
 // setup method
 void setup() {
